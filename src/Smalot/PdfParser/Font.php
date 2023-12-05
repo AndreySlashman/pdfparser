@@ -620,8 +620,8 @@ class Font extends PDFObject
     {
         $pdfToIconvEncodingNameMap = [
             'StandardEncoding' => 'ISO-8859-1',
-            'MacRomanEncoding' => 'MACINTOSH',
-            'WinAnsiEncoding' => 'CP1252',
+            // 'MacRomanEncoding' => 'MACINTOSH',
+            // 'WinAnsiEncoding' => 'CP1252',
         ];
 
         return \array_key_exists($pdfEncodingName, $pdfToIconvEncodingNameMap)
