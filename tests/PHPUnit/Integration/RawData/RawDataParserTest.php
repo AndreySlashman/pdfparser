@@ -87,6 +87,25 @@ class RawDataParserTest extends TestCase
             ],
             $result
         );
+
+        // Test that spaces after a 'stream' declaration are absorbed
+        // See: https://github.com/smalot/pdfparser/issues/641
+        $data = 'stream '."\n";
+        $data .= 'streamdata'."\n";
+        $data .= 'endstream'."\n";
+        $data .= 'endobj';
+
+        $result = $this->fixture->exposeGetRawObject($data);
+
+        // Value 'streamdata'."\n" would be empty string without the fix
+        $this->assertEquals(
+            [
+                'stream',
+                'streamdata'."\n",
+                19,
+            ],
+            $result
+        );
     }
 
     /**
@@ -152,5 +171,46 @@ class RawDataParserTest extends TestCase
         $this->assertArrayHasKey('Producer', $details);
         $this->assertArrayHasKey('Subject', $details);
         $this->assertArrayHasKey('Title', $details);
+    }
+
+    /**
+     * Account for inaccurate offset values in getXrefData.
+     *
+     * Normally offset values extracted from the PDF document are exact.
+     * However in some cases, they may point to whitespace *before* a
+     * valid xref keyword. Move the offset forward past whitespace to
+     * make this function a little more lenient.
+     *
+     * @see https://github.com/smalot/pdfparser/issues/673
+     */
+    public function testGetXrefDataIssue673(): void
+    {
+        $filename = $this->rootDir.'/samples/bugs/Issue673.pdf';
+
+        // Parsing this document would previously throw an Exception
+        $parser = $this->getParserInstance();
+        $document = $parser->parseFile($filename);
+        $text = $document->getText();
+
+        self::assertStringContainsString('6 rue des Goutais', $text);
+    }
+
+    /**
+     * Handle self referencing xref
+     *
+     * It seems that some PDF creators output `Prev 0` when there is no previous xref.
+     *
+     * @see https://github.com/smalot/pdfparser/pull/727
+     */
+    public function testDecodeXrefIssue727(): void
+    {
+        $filename = $this->rootDir.'/samples/bugs/Issue727.pdf';
+
+        // Parsing this document would previously cause an infinite loop
+        $parser = $this->getParserInstance();
+        $document = $parser->parseFile($filename);
+        $text = $document->getText();
+
+        self::assertStringContainsString('', $text);
     }
 }

@@ -281,12 +281,29 @@ al;font-family:Helvetica,sans-serif;font-stretch:normal"><p><span style="font-fa
         $this->assertEquals('AB C', Font::decodeOctal('\\101\\102\\040\\103'));
         $this->assertEquals('AB CD', Font::decodeOctal('\\101\\102\\040\\103D'));
         $this->assertEquals('AB \199', Font::decodeOctal('\\101\\102\\040\\\\199'));
+
+        // Test that series of backslashes of arbitrary length are decoded properly
+        $this->assertEquals('-', Font::decodeOctal('\\055')); // \055
+        $this->assertEquals('\\055', Font::decodeOctal('\\\\055')); // \\055
+        $this->assertEquals('\\-', Font::decodeOctal('\\\\\\055')); // \\\055
+        $this->assertEquals('\\\\055', Font::decodeOctal('\\\\\\\\055')); // \\\\055
+        $this->assertEquals('\\\\-', Font::decodeOctal('\\\\\\\\\\055')); // \\\\\055
+        $this->assertEquals('\\\\\\055', Font::decodeOctal('\\\\\\\\\\\\055')); // \\\\\\055
+        $this->assertEquals('\\\\\\-', Font::decodeOctal('\\\\\\\\\\\\\\055')); // \\\\\\\055
+
+        // Make sure we're unescaping ( and ) before returning the escaped
+        // backslashes to the string
+        $this->assertEquals('\\(', Font::decodeOctal('\\\\(')); // \\( - nothing to unescape
+        $this->assertEquals('\\(', Font::decodeOctal('\\\\\\(')); // \\\( - parenthesis unescaped
+        $this->assertEquals('\\\\(', Font::decodeOctal('\\\\\\\\(')); // \\\\( - nothing to unescape
+        $this->assertEquals('\\\\(', Font::decodeOctal('\\\\\\\\\\(')); // \\\\\( - parenthesis unescaped
     }
 
     public function testDecodeEntities(): void
     {
         $this->assertEquals('File Type', Font::decodeEntities('File#20Type'));
         $this->assertEquals('File# Ty#pe', Font::decodeEntities('File##20Ty#pe'));
+        $this->assertEquals('Fi#le#-Ty#p#e ', Font::decodeEntities('Fi#23le##2DTy#p#e '));
     }
 
     public function testDecodeUnicode(): void
@@ -294,9 +311,6 @@ al;font-family:Helvetica,sans-serif;font-stretch:normal"><p><span style="font-fa
         $this->assertEquals('AB', Font::decodeUnicode("\xFE\xFF\x00A\x00B"));
     }
 
-    /**
-     * @group linux-only
-     */
     public function testDecodeText(): void
     {
         $filename = $this->rootDir.'/samples/Document1_pdfcreator_nocompressed.pdf';
@@ -353,8 +367,6 @@ al;font-family:Helvetica,sans-serif;font-stretch:normal"><p><span style="font-fa
      * which would be instance of PDFObject class (but not Encoding or ElementString).
      *
      * @see https://github.com/smalot/pdfparser/pull/500
-     *
-     * @group linux-only
      */
     public function testDecodeTextForFontWithIndirectEncodingWithoutTypeEncoding(): void
     {
@@ -364,14 +376,12 @@ al;font-family:Helvetica,sans-serif;font-stretch:normal"><p><span style="font-fa
         $pages = $document->getPages();
         $page1 = reset($pages);
         $page1Text = $page1->getText();
-        $expectedText = <<<TEXT
-Export\u{a0}transakční\u{a0}historie
-Typ\u{a0}produktu:\u{a0}Podnikatelský\u{a0}účet\u{a0}Maxi
-Číslo\u{a0}účtu:\u{a0}0000000000/0000
-Počáteční\u{a0}zůstatek: 000\u{a0}000,00\u{a0}Kč
-Konečný\u{a0}zůstatek: 000\u{a0}000,00\u{a0}Kč
-Cena\u{a0}za\u{a0}služby
-TEXT;
+        $expectedText = "Export\u{a0}transakční\u{a0}historie\n";
+        $expectedText .= "Typ\u{a0}produktu:\u{a0}Podnikatelský\u{a0}účet\u{a0}Maxi\n";
+        $expectedText .= "Číslo\u{a0}účtu:\u{a0}0000000000/0000\n";
+        $expectedText .= "Počáteční\u{a0}zůstatek:\t000\u{a0}000,00\u{a0}Kč\n";
+        $expectedText .= "Konečný\u{a0}zůstatek:\t000\u{a0}000,00\u{a0}Kč\n";
+        $expectedText .= "Cena\u{a0}za\u{a0}služby";
 
         $this->assertEquals($expectedText, trim($page1Text));
     }
@@ -438,6 +448,44 @@ TEXT;
         $width = $fonts['9_0']->calculateTextWidth('Calibri', $missing);
         $this->assertEquals(2573, $width);
         $this->assertEquals([], $missing);
+    }
+
+    public function testDecodeContent(): void
+    {
+        /*
+         * we do this to get into the branch with private method "decodeContentByEncodingElement" in Font.php
+         */
+        $encoding = $this->createMock(Element::class);
+        $encoding->method('getContent')->willReturn('WinAnsiEncoding');
+        $header = new Header(['Encoding' => $encoding]);
+
+        $font = new Font($this->createMock(Document::class), $header);
+
+        // Check that a string with UTF-16BE BOM is decoded directly
+        $this->assertEquals('ABC', $font->decodeContent("\xFE\xFF\x00\x41\x00\x42\x00\x43"));
+    }
+
+    /**
+     * Check behavior if getDetails() does return an array without a Widths-key.
+     *
+     * @see https://github.com/smalot/pdfparser/issues/619
+     */
+    public function testCalculateTextWidthNoWidthsKey(): void
+    {
+        $document = $this->createMock(Document::class);
+
+        $header = $this->createMock(Header::class);
+        $header->method('getDetails')->willReturn([
+            'FirstChar' => '',
+            'LastChar' => '',
+            // 'Widths' key is not set, so without the fix in Font.php a warning would be thrown.
+        ]);
+
+        $font = new Font($document, $header);
+        $font->setTable([]);
+        $width = $font->calculateTextWidth('foo');
+
+        $this->assertNull($width);
     }
 
     /**
